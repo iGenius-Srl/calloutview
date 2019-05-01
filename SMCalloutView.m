@@ -20,13 +20,18 @@
 #define CALLOUT_MIN_WIDTH 61 // minimum width of system callout
 #define TITLE_HMARGIN 12 // the title/subtitle view's normal horizontal margin from the edges of our callout view or from the accessories
 #define TITLE_TOP 11 // the top of the title view when no subtitle is present
-#define TITLE_SUB_TOP 4 // the top of the title view when a subtitle IS present
+#define TITLE_SUB_TOP 12 // the top of the title view when a subtitle IS present
 #define TITLE_HEIGHT 21 // title height, fixed
-#define SUBTITLE_TOP 28 // the top of the subtitle, when present
+#define SUBTITLE_TOP 36 // the top of the subtitle, when present
 #define SUBTITLE_HEIGHT 15 // subtitle height, fixed
 #define BETWEEN_ACCESSORIES_MARGIN 7 // margin between accessories when no title/subtitle is present
 #define TOP_ANCHOR_MARGIN 13 // all the above measurements assume a bottom anchor! if we're pointing "up" we'll need to add this top margin to everything.
 #define COMFORTABLE_MARGIN 10 // when we try to reposition content to be visible, we'll consider this margin around your target rect
+#define CONTENT_MARGIN 8
+#define SHADOW_MARGIN 4
+#define VIEW_TOP_OFFSET 20
+#define CORNER_RADIUS 4
+#define ANIMATION_ENABLED false
 
 NSTimeInterval const kSMCalloutViewRepositionDelayForUIScrollView = 1.0/3.0;
 
@@ -191,14 +196,16 @@ NSTimeInterval const kSMCalloutViewRepositionDelayForUIScrollView = 1.0/3.0;
 }
 
 - (CGFloat)calloutHeight {
-    return self.calloutContainerHeight + self.backgroundView.anchorHeight;
+    if (self.contentView)
+        return self.calloutContainerHeight + CONTENT_MARGIN * 2;
+    else return self.calloutContainerHeight + CONTENT_MARGIN * 3;
 }
 
 - (CGFloat)calloutContainerHeight {
     if (self.contentView)
-        return self.contentView.frameHeight + self.contentViewInset.bottom + self.contentViewInset.top;
+        return self.contentView.frameHeight + self.contentViewInset.bottom + self.contentViewInset.top - CONTENT_MARGIN * 2;
     else if (self.subtitleView || self.subtitle.length > 0)
-        return CALLOUT_SUB_DEFAULT_CONTAINER_HEIGHT;
+        return CALLOUT_SUB_DEFAULT_CONTAINER_HEIGHT - BETWEEN_ACCESSORIES_MARGIN;
     else
         return CALLOUT_DEFAULT_CONTAINER_HEIGHT;
 }
@@ -341,7 +348,7 @@ NSTimeInterval const kSMCalloutViewRepositionDelayForUIScrollView = 1.0/3.0;
     
     CGPoint calloutOrigin = {
         .x = calloutX + adjustX,
-        .y = bestDirection == SMCalloutArrowDirectionDown ? (anchorY - self.calloutHeight) : anchorY
+        .y = bestDirection == SMCalloutArrowDirectionDown ? (anchorY - self.calloutHeight) - VIEW_TOP_OFFSET : anchorY - VIEW_TOP_OFFSET
     };
     
     self.frameOrigin = calloutOrigin;
@@ -389,18 +396,20 @@ NSTimeInterval const kSMCalloutViewRepositionDelayForUIScrollView = 1.0/3.0;
 
     // if we need to delay, we don't want to be visible while we're delaying, so hide us in preparation for our popup
     self.hidden = YES;
-    
-    // create the appropriate animation, even if we're not animated
-    CAAnimation *animation = [self animationWithType:self.presentAnimation presenting:YES];
-    
-    // nuke the duration if no animation requested - we'll still need to "run" the animation to get delays and callbacks
-    if (!animated)
-        animation.duration = 0.0000001; // can't be zero or the animation won't "run"
-    
-    animation.beginTime = CACurrentMediaTime() + delay;
-    animation.delegate = self;
-    
-    [self.layer addAnimation:animation forKey:@"present"];
+
+    if (ANIMATION_ENABLED) {
+        // create the appropriate animation, even if we're not animated
+        CAAnimation *animation = [self animationWithType:self.presentAnimation presenting:YES];
+
+        // nuke the duration if no animation requested - we'll still need to "run" the animation to get delays and callbacks
+        if (!animated)
+            animation.duration = 0.0000001; // can't be zero or the animation won't "run"
+
+        animation.beginTime = CACurrentMediaTime() + delay;
+        animation.delegate = self;
+
+        [self.layer addAnimation:animation forKey:@"present"];
+    }
 }
 
 - (void)animationDidStart:(CAAnimation *)anim {
@@ -443,13 +452,16 @@ NSTimeInterval const kSMCalloutViewRepositionDelayForUIScrollView = 1.0/3.0;
     [self.layer removeAnimationForKey:@"dismiss"];
     
     self.popupCancelled = YES;
-    
-    if (animated) {
-        CAAnimation *animation = [self animationWithType:self.dismissAnimation presenting:NO];
-        animation.delegate = self;
-        [self.layer addAnimation:animation forKey:@"dismiss"];
-    }
-    else {
+
+    if (ANIMATION_ENABLED) {
+        if (animated) {
+            CAAnimation *animation = [self animationWithType:self.dismissAnimation presenting:NO];
+            animation.delegate = self;
+            [self.layer addAnimation:animation forKey:@"dismiss"];
+        } else {
+            [self removeFromParent];
+        }
+    } else {
         [self removeFromParent];
     }
 }
@@ -592,6 +604,9 @@ NSTimeInterval const kSMCalloutViewRepositionDelayForUIScrollView = 1.0/3.0;
 @interface SMCalloutMaskedBackgroundView ()
 @property (nonatomic, strong) UIView *containerView, *containerBorderView, *arrowView;
 @property (nonatomic, strong) UIImageView *arrowImageView, *arrowHighlightedImageView, *arrowBorderView;
+    
+- (void)dropShadow:(UIView *)view color:(UIColor *)color opacity:(float)opacity offSet:(CGSize)offSet radius:(CGFloat)radius;
+    
 @end
 
 static UIImage *blackArrowImage = nil, *whiteArrowImage = nil, *grayArrowImage = nil;
@@ -604,17 +619,30 @@ static UIImage *blackArrowImage = nil, *whiteArrowImage = nil, *grayArrowImage =
         // Here we're mimicking the very particular (and odd) structure of the system callout view.
         // The hierarchy and view/layer values were discovered by inspecting map kit using Reveal.app
         
+        self.backgroundColor = [UIColor clearColor];
+
         self.containerView = [UIView new];
         self.containerView.backgroundColor = [UIColor whiteColor];
         self.containerView.alpha = 0.96;
-        self.containerView.layer.cornerRadius = 8;
+        self.containerView.layer.cornerRadius = CORNER_RADIUS;
+        /*
         self.containerView.layer.shadowRadius = 30;
         self.containerView.layer.shadowOpacity = 0.1;
+         */
         
+        UIColor *shadowColor = [UIColor colorWithRed: 158/255.0 green: 168/255.0 blue: 181/255.0 alpha: 0.4];
+
+        CGSize shadowOffset = CGSizeZero;
+        shadowOffset.width = 0;
+        shadowOffset.height = 0;
+        [self dropShadow:self.containerView color:shadowColor opacity:1 offSet:shadowOffset radius:CORNER_RADIUS + 1];
+
         self.containerBorderView = [UIView new];
+        /*
         self.containerBorderView.layer.borderColor = [UIColor colorWithWhite:0 alpha:0.1].CGColor;
         self.containerBorderView.layer.borderWidth = 0.5;
         self.containerBorderView.layer.cornerRadius = 8.5;
+         */
         
         if (!blackArrowImage) {
             blackArrowImage = [SMCalloutBackgroundView embeddedImageNamed:@"CalloutArrow"];
@@ -636,12 +664,24 @@ static UIImage *blackArrowImage = nil, *whiteArrowImage = nil, *grayArrowImage =
         
         [self addSubview:self.containerView];
         [self.containerView addSubview:self.containerBorderView];
-        [self addSubview:self.arrowView];
+        //[self addSubview:self.arrowView];
         [self.arrowView addSubview:self.arrowBorderView];
         [self.arrowView addSubview:self.arrowImageView];
         [self.arrowView addSubview:self.arrowHighlightedImageView];
     }
     return self;
+}
+
+- (void)dropShadow:(UIView *)view color:(UIColor *)color opacity:(float)opacity offSet:(CGSize)offSet radius:(CGFloat)radius {
+    view.layer.masksToBounds = false;
+    view.layer.shadowColor = color.CGColor;
+    view.layer.shadowOpacity = opacity;
+    view.layer.shadowOffset = offSet;
+    view.layer.shadowRadius = radius;
+
+    view.layer.shadowPath = [UIBezierPath bezierPathWithRect: view.bounds].CGPath;
+    view.layer.shouldRasterize = true;
+    view.layer.rasterizationScale = UIScreen.mainScreen.scale;
 }
 
 // Make sure we relayout our images when our arrow point changes!
@@ -679,8 +719,10 @@ static UIImage *blackArrowImage = nil, *whiteArrowImage = nil, *grayArrowImage =
     // if we're pointing up, we'll need to push almost everything down a bit
     CGFloat dy = pointingUp ? TOP_ANCHOR_MARGIN : 0;
 
-    self.containerView.frame = CGRectMake(0, dy, self.frameWidth, self.frameHeight - self.arrowView.frameHeight + 0.5);
+    self.containerView.frame = CGRectMake(SHADOW_MARGIN, dy + SHADOW_MARGIN, self.frameWidth - SHADOW_MARGIN * 2, self.frameHeight - SHADOW_MARGIN * 2);
     self.containerBorderView.frame = CGRectInset(self.containerView.bounds, -0.5, -0.5);
+
+    self.containerView.layer.shadowPath = [UIBezierPath bezierPathWithRect: self.containerView.bounds].CGPath;
 
     self.arrowView.frameX = roundf(self.arrowPoint.x - self.arrowView.frameWidth / 2);
     
